@@ -19,6 +19,8 @@ inline void printLog(const char *msg, ...)
             sprintf(pathBuffer, "%s/log.txt", getResourcesPath());
         else
             sprintf(pathBuffer, "log.txt");
+#elif RETRO_PLATFORM == RETRO_VITA
+        sprintf(pathBuffer, "ux0:/data/SOCD00001/log.txt");
 #else
         sprintf(pathBuffer, "log.txt");
 #endif
