@@ -5,6 +5,8 @@
 - After that's complete, run `make`
 - Install SonicCD.vpk
 
+Make sure you copy your Sonic CD game data to the ux0:app/SOCD00001 folder
+
 
 # Sonic-CD-11-Decompilation
 A Full Decompilation of Sonic CD 2011, Based on the PC remake with improvements & tweaks from the mobile remakes
