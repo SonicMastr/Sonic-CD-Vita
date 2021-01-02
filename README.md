@@ -1,3 +1,11 @@
+# Building the Vita Port
+
+- Install DolceSDK
+- navigate to the project folder and run `cmake .`
+- After that's complete, run `make`
+- Install SonicCD.vpk
+
+
 # Sonic-CD-11-Decompilation
 A Full Decompilation of Sonic CD 2011, Based on the PC remake with improvements & tweaks from the mobile remakes
 
