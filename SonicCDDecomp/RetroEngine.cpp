@@ -9,18 +9,23 @@ bool processEvents()
 {
 #if RETRO_USING_SDL
     while (SDL_PollEvent(&Engine.sdlEvents)) {
-        switch (Engine.sdlEvents.window.event) {
-            case SDL_WINDOWEVENT_MAXIMIZED: {
-                SDL_RestoreWindow(Engine.window);
-                SDL_SetWindowFullscreen(Engine.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
-                Engine.isFullScreen = true;
-                break;
-            }
-            case SDL_WINDOWEVENT_CLOSE: Engine.gameMode = ENGINE_EXITGAME; return false;
-        }
-
         // Main Events
         switch (Engine.sdlEvents.type) {
+            case SDL_WINDOWEVENT:
+                switch (Engine.sdlEvents.window.event) {
+                    case SDL_WINDOWEVENT_MAXIMIZED: {
+                        SDL_RestoreWindow(Engine.window);
+                        SDL_SetWindowFullscreen(Engine.window, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                        Engine.isFullScreen = true;
+                        break;
+                    }
+                    case SDL_WINDOWEVENT_CLOSE:
+                        Engine.gameMode = ENGINE_EXITGAME;
+                        return false;
+                        break;
+                }
+                break;
+
             case SDL_CONTROLLERDEVICEADDED: controllerInit(SDL_NumJoysticks() - 1); break;
             case SDL_CONTROLLERDEVICEREMOVED: controllerClose(SDL_NumJoysticks() - 1); break;
             case SDL_WINDOWEVENT_CLOSE:
@@ -32,7 +37,9 @@ bool processEvents()
                 return false;
             case SDL_APP_WILLENTERBACKGROUND: /*Engine.Callback(CALLBACK_ENTERBG);*/ break;
             case SDL_APP_WILLENTERFOREGROUND: /*Engine.Callback(CALLBACK_ENTERFG);*/ break;
-            case SDL_APP_TERMINATING: Engine.gameMode = ENGINE_EXITGAME; break;
+            case SDL_APP_TERMINATING:
+                Engine.gameMode = ENGINE_EXITGAME;
+                break;
             case SDL_MOUSEMOTION:
                 if (SDL_GetNumTouchFingers(SDL_GetTouchDevice(1)) <= 0) { // Touch always takes priority over mouse
                     SDL_GetMouseState(&touchX[0], &touchY[0]);
@@ -178,7 +185,9 @@ bool processEvents()
 #endif
                 }
                 break;
-            case SDL_QUIT: Engine.gameMode = ENGINE_EXITGAME; return false;
+            case SDL_QUIT:
+                Engine.gameMode = ENGINE_EXITGAME;
+                return false;
         }
     }
 #endif
@@ -190,7 +199,11 @@ void RetroEngine::Init()
     CalculateTrigAngles();
     GenerateBlendLookupTable();
 
+#if RETRO_PLATFORM == RETRO_VITA
+    CheckRSDKFile("ux0:/data/SOCD00001/data.rsdk");
+#else
     CheckRSDKFile("data.rsdk");
+#endif
     InitUserdata();
 
     gameMode = ENGINE_EXITGAME;
@@ -217,7 +230,6 @@ void RetroEngine::Run()
     while (running) {
         frameStart = SDL_GetTicks();
         frameDelta = frameStart - frameEnd;
-
         if (frameDelta > 1000.0f / (float)refreshRate) {
             frameEnd = frameStart;
 
