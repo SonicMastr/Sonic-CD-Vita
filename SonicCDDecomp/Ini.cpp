@@ -1,5 +1,6 @@
 #include "RetroEngine.hpp"
 #include <stdlib.h>
+#include <string>
 #include <algorithm>
 
 IniParser::IniParser(const char *filename)

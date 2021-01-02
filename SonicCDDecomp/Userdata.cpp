@@ -130,6 +130,8 @@ void InitUserdata()
         sprintf(buffer, "%s/settings.ini", getResourcesPath());
     else
         sprintf(buffer, "%ssettings.ini", gamePath);
+#elif RETRO_PLATFORM == RETRO_VITA
+    sprintf(buffer, "app0:settings.ini");
 #else
     sprintf(buffer, "settings.ini");
 #endif

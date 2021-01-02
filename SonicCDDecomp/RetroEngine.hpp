@@ -17,7 +17,9 @@ typedef unsigned char byte;
 typedef signed char sbyte;
 typedef unsigned short ushort;
 typedef unsigned int uint;
+#ifndef __vita__
 typedef unsigned long long ulong;
+#endif
 
 // Platforms
 #define RETRO_WIN      (0)
@@ -27,17 +29,20 @@ typedef unsigned long long ulong;
 #define RETRO_iOS      (4)
 #define RETRO_ANDROID  (5)
 #define RETRO_WP7      (6)
+#define RETRO_VITA     (7)
 
 #if defined _WIN32
 #define RETRO_PLATFORM (RETRO_WIN)
 #elif defined __APPLE__
 #define RETRO_PLATFORM (RETRO_OSX)
+#elif defined __vita__
+#define RETRO_PLATFORM (RETRO_VITA)
 #else
 #define RETRO_PLATFORM (RETRO_WIN) //Default
 #endif
 
 
-#if RETRO_PLATFORM == RETRO_WINDOWS || RETRO_PLATFORM == RETRO_OSX
+#if RETRO_PLATFORM == RETRO_WINDOWS || RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_VITA
 #define RETRO_USING_SDL (1)
 #else //Since its an else & not an elif these platforms probably aren't supported yet
 #define RETRO_USING_SDL (0)
@@ -46,7 +51,7 @@ typedef unsigned long long ulong;
 #define RETRO_GAME_STANDARD (0)
 #define RETRO_GAME_MOBILE   (1)
 
-#if RETRO_PLATFORM == RETRO_iOS || RETRO_PLATFORM == RETRO_ANDROID || RETRO_PLATFORM == RETRO_WP7
+#if RETRO_PLATFORM == RETRO_iOS || RETRO_PLATFORM == RETRO_ANDROID || RETRO_PLATFORM == RETRO_WP7 || RETRO_PLATFORM == RETRO_VITA
 #define RETRO_GAMEPLATFORM (RETRO_GAME_MOBILE)
 #else
 #define RETRO_GAMEPLATFORM (RETRO_GAME_STANDARD)
@@ -122,6 +127,11 @@ enum RetroBytecodeFormat {
 #include "theoraplay.h"
 
 #include "cocoaHelpers.hpp"
+#elif RETRO_PLATFORM == RETRO_VITA
+#include <SDL2/SDL.h>
+#include <vorbis/vorbisfile.h>
+#include <theora/theora.h>
+#include "theoraplay.h"
 #endif
 
 extern bool usingCWD;
