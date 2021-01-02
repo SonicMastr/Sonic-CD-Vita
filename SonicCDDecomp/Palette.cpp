@@ -1,12 +1,8 @@
 #include "RetroEngine.hpp"
 
 // Palettes (as RGB888 Colours)
-PaletteEntry fullPalette32[PALETTE_COUNT][PALETTE_SIZE];
-PaletteEntry *activePalette32 = fullPalette32[0];
-
-// Palettes (as RGB565 Colours)
-ushort fullPalette[PALETTE_COUNT][PALETTE_SIZE];
-ushort *activePalette = fullPalette[0]; // Ptr to the 256 colour set thats active
+uint fullPalette32[PALETTE_COUNT][PALETTE_SIZE];
+uint *activePalette32 = fullPalette32[0];
 
 byte gfxLineBuffer[SCREEN_YSIZE]; // Pointers to active palette
 
@@ -53,7 +49,6 @@ void SetLimitedFade(byte paletteID, byte R, byte G, byte B, ushort Alpha, int st
     if (paletteID >= PALETTE_COUNT)
         return;
     paletteMode     = 1;
-    activePalette   = fullPalette[paletteID];
     activePalette32 = fullPalette32[paletteID];
     if (Alpha > 0xFF)
         Alpha = 0xFF;
@@ -61,8 +56,15 @@ void SetLimitedFade(byte paletteID, byte R, byte G, byte B, ushort Alpha, int st
     if (endIndex < PALETTE_SIZE)
         ++endIndex;
     for (int i = startIndex; i < endIndex; ++i) {
-        activePalette[i] = ((int)(byte)((ushort)(B * Alpha + (0xFF - Alpha) * activePalette32[i].r) >> 8) >> 3)
-                           | 32 * ((int)(byte)((ushort)(G * Alpha + (0xFF - Alpha) * activePalette32[i].g) >> 8) >> 2)
-                           | ((ushort)((int)(byte)((ushort)(R * Alpha + (0xFF - Alpha) * activePalette32[i].b) >> 8) >> 3) << 11);
+
+        byte a = activePalette32[i] >> 24 & 0xFF;
+        byte b = activePalette32[i] >> 16 & 0xFF;
+        byte g = activePalette32[i] >> 8 & 0xFF;
+        byte r = activePalette32[i] & 0xFF;
+
+        activePalette32[i] = ((Alpha + (0xFF - Alpha) * Alpha) << 24)
+                         | ((B * Alpha + (0xFF - Alpha) * b) << 16)
+                         | ((G * Alpha + (0xFF - Alpha) * g) << 8)
+                         | ((R * Alpha + (0xFF - Alpha) * r));
     }
 }

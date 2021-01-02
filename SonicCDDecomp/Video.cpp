@@ -126,10 +126,7 @@ void UpdateVideoFrame()
             byte clr[3];
             for (int i = 0; i < 0x80; ++i) {
                 FileRead(&clr, 3);
-                activePalette32[i].r = clr[0];
-                activePalette32[i].g = clr[1];
-                activePalette32[i].b = clr[2];
-                activePalette[i]     = ((ushort)(clr[0] >> 3) << 11) | 32 * (clr[1] >> 2) | (clr[2] >> 3);
+                activePalette32[i] = (0xFF<<24) | (clr[2] << 16) | (clr[1] << 8) | (clr[0]);
             }
 
             FileRead(&fileBuffer, 1);

@@ -32,8 +32,6 @@ struct GFXSurface
     int dataPosition;
 };
 
-extern short blendLookupTable[BLENDTABLE_SIZE];
-extern short subtractLookupTable[BLENDTABLE_SIZE];
 extern short tintLookupTable[TINTTABLE_SIZE];
 
 extern int SCREEN_XSIZE;

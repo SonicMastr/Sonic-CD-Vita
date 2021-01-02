@@ -17,7 +17,7 @@ typedef unsigned char byte;
 typedef signed char sbyte;
 typedef unsigned short ushort;
 typedef unsigned int uint;
-#ifndef __vita__
+#if !defined(__vita__) && !defined(__linux__)
 typedef unsigned long long ulong;
 #endif
 
@@ -30,6 +30,7 @@ typedef unsigned long long ulong;
 #define RETRO_ANDROID  (5)
 #define RETRO_WP7      (6)
 #define RETRO_VITA     (7)
+#define RETRO_LNX      (8)
 
 #if defined _WIN32
 #define RETRO_PLATFORM (RETRO_WIN)
@@ -37,12 +38,14 @@ typedef unsigned long long ulong;
 #define RETRO_PLATFORM (RETRO_OSX)
 #elif defined __vita__
 #define RETRO_PLATFORM (RETRO_VITA)
+#elif defined __linux__
+#define RETRO_PLATFORM (RETRO_LNX)
 #else
 #define RETRO_PLATFORM (RETRO_WIN) //Default
 #endif
 
 
-#if RETRO_PLATFORM == RETRO_WINDOWS || RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_VITA
+#if RETRO_PLATFORM == RETRO_WINDOWS || RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_VITA || RETRO_PLATFORM == RETRO_LNX
 #define RETRO_USING_SDL (1)
 #else //Since its an else & not an elif these platforms probably aren't supported yet
 #define RETRO_USING_SDL (0)
@@ -51,7 +54,7 @@ typedef unsigned long long ulong;
 #define RETRO_GAME_STANDARD (0)
 #define RETRO_GAME_MOBILE   (1)
 
-#if RETRO_PLATFORM == RETRO_iOS || RETRO_PLATFORM == RETRO_ANDROID || RETRO_PLATFORM == RETRO_WP7 || RETRO_PLATFORM == RETRO_VITA
+#if RETRO_PLATFORM == RETRO_iOS || RETRO_PLATFORM == RETRO_ANDROID || RETRO_PLATFORM == RETRO_WP7 || RETRO_PLATFORM == RETRO_VITA || RETRO_PLATFORM == RETRO_LNX
 #define RETRO_GAMEPLATFORM (RETRO_GAME_MOBILE)
 #else
 #define RETRO_GAMEPLATFORM (RETRO_GAME_STANDARD)
@@ -128,6 +131,11 @@ enum RetroBytecodeFormat {
 
 #include "cocoaHelpers.hpp"
 #elif RETRO_PLATFORM == RETRO_VITA
+#include <SDL2/SDL.h>
+#include <vorbis/vorbisfile.h>
+#include <theora/theora.h>
+#include "theoraplay.h"
+#elif RETRO_PLATFORM == RETRO_LNX
 #include <SDL2/SDL.h>
 #include <vorbis/vorbisfile.h>
 #include <theora/theora.h>
@@ -225,7 +233,7 @@ public:
 #endif
 
 
-    ushort *frameBuffer = nullptr;
+    uint *frameBuffer = nullptr;
     uint *videoFrameBuffer = nullptr;
 
     bool isFullScreen = false;
@@ -241,7 +249,7 @@ public:
     SDL_Renderer *renderer    = nullptr;
     SDL_Texture *screenBuffer = nullptr;
     SDL_Texture *videoBuffer = nullptr;
-
+    SDL_Surface *frameSurf = nullptr;
     SDL_Event sdlEvents;
 #endif
 };

@@ -1,7 +1,5 @@
 #include "RetroEngine.hpp"
 
-short blendLookupTable[BLENDTABLE_SIZE];
-short subtractLookupTable[BLENDTABLE_SIZE];
 short tintLookupTable[TINTTABLE_SIZE];
 
 int SCREEN_XSIZE   = 424;
@@ -19,8 +17,8 @@ int InitRenderDevice()
 
     sprintf(gameTitle, "%s%s", Engine.gameWindowText, Engine.usingDataFile ? "" : " (Using Data Folder)");
 
-    Engine.frameBuffer = new ushort[SCREEN_XSIZE * SCREEN_YSIZE];
-    memset(Engine.frameBuffer, 0, (SCREEN_XSIZE * SCREEN_YSIZE) * sizeof(ushort));
+    Engine.frameSurf = SDL_CreateRGBSurface(0, SCREEN_XSIZE, SCREEN_YSIZE, 32, 0, 0, 0, 0);
+    Engine.frameBuffer = (uint*)Engine.frameSurf->pixels;
 
 #if RETRO_USING_SDL
     SDL_Init(SDL_INIT_EVERYTHING);
@@ -48,7 +46,7 @@ int InitRenderDevice()
     SDL_RenderSetLogicalSize(Engine.renderer, SCREEN_XSIZE, SCREEN_YSIZE);
     SDL_SetRenderDrawBlendMode(Engine.renderer, SDL_BLENDMODE_BLEND);
 
-    Engine.screenBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_RGB565, SDL_TEXTUREACCESS_STREAMING, SCREEN_XSIZE, SCREEN_YSIZE);
+    Engine.screenBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, SCREEN_XSIZE, SCREEN_YSIZE);
 
     if (!Engine.screenBuffer) {
         printLog("ERROR: failed to create screen buffer!\nerror msg: %s", SDL_GetError());
@@ -78,6 +76,7 @@ int InitRenderDevice()
 
     return 1;
 }
+
 void RenderRenderDevice()
 {
     if (Engine.gameMode == ENGINE_EXITGAME)
@@ -91,11 +90,12 @@ void RenderRenderDevice()
     destScreenPos.h = SCREEN_YSIZE;
 
     int pitch = 0;
-    SDL_SetRenderTarget(Engine.renderer, NULL);
-    ushort *pixels = NULL;
+//    SDL_SetRenderTarget(Engine.renderer, NULL);
+
+    uint *pixels = NULL;
     if (Engine.gameMode != ENGINE_VIDEOWAIT) {
         SDL_LockTexture(Engine.screenBuffer, NULL, (void **)&pixels, &pitch);
-        memcpy(pixels, Engine.frameBuffer, pitch * SCREEN_YSIZE);
+        SDL_memcpy(pixels, Engine.frameBuffer, pitch * SCREEN_YSIZE);
         SDL_UnlockTexture(Engine.screenBuffer);
 
         SDL_RenderCopy(Engine.renderer, Engine.screenBuffer, NULL, &destScreenPos);
@@ -108,13 +108,19 @@ void RenderRenderDevice()
         SDL_RenderCopy(Engine.renderer, Engine.videoBuffer, NULL, &destScreenPos);
     }
 
+    if (fadeMode > 0) {
+        SDL_SetRenderDrawColor(Engine.renderer, fadeR, fadeG, fadeB, fadeA);
+        SDL_RenderFillRect(Engine.renderer, NULL);
+    }
+
+
     SDL_RenderPresent(Engine.renderer);
 #endif
 }
 void ReleaseRenderDevice()
 {
     if (Engine.frameBuffer)
-        delete[] Engine.frameBuffer;
+        SDL_FreeSurface(Engine.frameSurf);
 #if RETRO_USING_SDL
     SDL_DestroyTexture(Engine.screenBuffer);
     Engine.screenBuffer = NULL;
@@ -127,16 +133,6 @@ void ReleaseRenderDevice()
 void GenerateBlendLookupTable(void)
 {
     int tintValue;
-    int blendTableID;
-
-    blendTableID = 0;
-    for (int y = 0; y < BLENDTABLE_YSIZE; y++) {
-        for (int x = 0; x < BLENDTABLE_XSIZE; x++) {
-            blendLookupTable[blendTableID]      = y * x >> 8;
-            subtractLookupTable[blendTableID++] = y * ((BLENDTABLE_XSIZE - 1) - x) >> 8;
-        }
-    }
-
     for (int i = 0; i < TINTTABLE_SIZE; i++) {
         tintValue = ((i & 0x1F) + ((i & 0x7E0) >> 6) + ((i & 0xF800) >> 11)) / 3 + 6;
         if (tintValue > 31)
@@ -147,13 +143,8 @@ void GenerateBlendLookupTable(void)
 
 void ClearScreen(byte index)
 {
-    ushort colour       = activePalette[index];
-    ushort *framebuffer = Engine.frameBuffer;
-    int cnt             = SCREEN_XSIZE * SCREEN_YSIZE;
-    while (cnt--) {
-        *framebuffer = colour;
-        ++framebuffer;
-    }
+    uint colour       = activePalette32[index];
+    SDL_FillRect(Engine.frameSurf, NULL, colour);
 }
 
 void SetScreenSize(int width, int height)
@@ -243,9 +234,13 @@ void DrawStageGFX(void)
             int x = (SCREEN_XSIZE - (0xF << 3));
             int y = (SCREEN_YSIZE - (0xF << 2));
             for (int c = 0; c < PALETTE_SIZE; ++c) {
+                uint src = fullPalette32[p][c];
+                byte b = src >> 16 & 0xFF;
+                byte g = src >> 8 & 0xFF;
+                byte r = src & 0xFF;
+
                 DrawRectangle(x + ((c & 0xF) << 1) + ((p % (PALETTE_COUNT / 2)) * (2 * 16)),
-                              y + ((c >> 4) << 1) + ((p / (PALETTE_COUNT / 2)) * (2 * 16)), 2, 2, fullPalette32[p][c].r, fullPalette32[p][c].g,
-                              fullPalette32[p][c].b, 0xFF);
+                              y + ((c >> 4) << 1) + ((p / (PALETTE_COUNT / 2)) * (2 * 16)), 2, 2, r, g, b, 0xFF);
             }
         }
     }
@@ -254,7 +249,7 @@ void DrawStageGFX(void)
     DrawObjectList(6);
 
     if (fadeMode > 0) {
-        DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
+//        DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
     }
 }
 
@@ -313,7 +308,7 @@ void DrawHLineScrollLayer(int layerID)
         lastXSize = layerwidth;
     }
 
-    ushort *frameBufferPtr = Engine.frameBuffer;
+    uint *frameBufferPtr = Engine.frameBuffer;
     byte *lineBuffer       = gfxLineBuffer;
     int tileYPos           = yscrollOffset % (layerheight << 7);
     if (tileYPos < 0)
@@ -327,7 +322,6 @@ void DrawHLineScrollLayer(int layerID)
     int drawableLines[2] = { waterDrawPos, SCREEN_YSIZE - waterDrawPos };
     for (int i = 0; i < 2; ++i) {
         while (drawableLines[i]--) {
-            activePalette = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int chunkX             = tileXPos[*scrollIndex];
@@ -369,7 +363,7 @@ void DrawHLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetY + tiles128x128.gfxDataPos[chunk] + tilePxXPos];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                         }
@@ -378,7 +372,7 @@ void DrawHLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetYFlipX + tiles128x128.gfxDataPos[chunk] - tilePxXPos];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                         }
@@ -387,7 +381,7 @@ void DrawHLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetYFlipY + tiles128x128.gfxDataPos[chunk] + tilePxXPos];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                         }
@@ -396,7 +390,7 @@ void DrawHLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetYFlipXY + tiles128x128.gfxDataPos[chunk] - tilePxXPos];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                         }
@@ -430,268 +424,268 @@ void DrawHLineScrollLayer(int layerID)
                         case FLIP_NONE:
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetY];
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             break;
                         case FLIP_X:
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipX];
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             break;
                         case FLIP_Y:
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipY];
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             ++gfxDataPtr;
                             break;
                         case FLIP_XY:
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipXY];
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             ++frameBufferPtr;
                             --gfxDataPtr;
                             break;
@@ -723,7 +717,7 @@ void DrawHLineScrollLayer(int layerID)
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetY];
                             while (tilePxLineCnt--) {
                                 if (*gfxDataPtr > 0)
-                                    *frameBufferPtr = activePalette[*gfxDataPtr];
+                                    *frameBufferPtr = activePalette32[*gfxDataPtr];
                                 ++frameBufferPtr;
                                 ++gfxDataPtr;
                             }
@@ -732,7 +726,7 @@ void DrawHLineScrollLayer(int layerID)
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipX];
                             while (tilePxLineCnt--) {
                                 if (*gfxDataPtr > 0)
-                                    *frameBufferPtr = activePalette[*gfxDataPtr];
+                                    *frameBufferPtr = activePalette32[*gfxDataPtr];
                                 ++frameBufferPtr;
                                 --gfxDataPtr;
                             }
@@ -741,7 +735,7 @@ void DrawHLineScrollLayer(int layerID)
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipY];
                             while (tilePxLineCnt--) {
                                 if (*gfxDataPtr > 0)
-                                    *frameBufferPtr = activePalette[*gfxDataPtr];
+                                    *frameBufferPtr = activePalette32[*gfxDataPtr];
                                 ++frameBufferPtr;
                                 ++gfxDataPtr;
                             }
@@ -750,7 +744,7 @@ void DrawHLineScrollLayer(int layerID)
                             gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetYFlipXY];
                             while (tilePxLineCnt--) {
                                 if (*gfxDataPtr > 0)
-                                    *frameBufferPtr = activePalette[*gfxDataPtr];
+                                    *frameBufferPtr = activePalette32[*gfxDataPtr];
                                 ++frameBufferPtr;
                                 --gfxDataPtr;
                             }
@@ -828,8 +822,7 @@ void DrawVLineScrollLayer(int layerID)
         lastYSize = layerheight;
     }
 
-    ushort *frameBufferPtr = Engine.frameBuffer;
-    activePalette          = fullPalette[gfxLineBuffer[0]];
+    uint *frameBufferPtr = Engine.frameBuffer;
     activePalette32        = fullPalette32[gfxLineBuffer[0]];
     int tileXPos           = xscrollOffset % (layerheight << 7);
     if (tileXPos < 0)
@@ -872,7 +865,7 @@ void DrawVLineScrollLayer(int layerID)
                     gfxDataPtr    = &tilesetGFXData[0x10 * tileY + tileX16 + tiles128x128.gfxDataPos[chunk]];
                     while (tilePxLineCnt--) {
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                     }
@@ -881,7 +874,7 @@ void DrawVLineScrollLayer(int layerID)
                     gfxDataPtr    = &tilesetGFXData[0x10 * tileY + tileOffsetXFlipX + tiles128x128.gfxDataPos[chunk]];
                     while (tilePxLineCnt--) {
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                     }
@@ -890,7 +883,7 @@ void DrawVLineScrollLayer(int layerID)
                     gfxDataPtr    = &tilesetGFXData[tileOffsetXFlipY + tiles128x128.gfxDataPos[chunk] - 0x10 * tileY];
                     while (tilePxLineCnt--) {
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                     }
@@ -899,7 +892,7 @@ void DrawVLineScrollLayer(int layerID)
                     gfxDataPtr    = &tilesetGFXData[tileOffsetXFlipXY + tiles128x128.gfxDataPos[chunk] - 16 * tileY];
                     while (tilePxLineCnt--) {
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                     }
@@ -933,268 +926,268 @@ void DrawVLineScrollLayer(int layerID)
                     case FLIP_NONE:
                         gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileX16];
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         break;
                     case FLIP_X:
                         gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetXFlipX];
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr += 0x10;
                         break;
                     case FLIP_Y:
                         gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetXFlipY];
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         break;
                     case FLIP_XY:
                         gfxDataPtr = &tilesetGFXData[tiles128x128.gfxDataPos[chunk] + tileOffsetXFlipXY];
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         if (*gfxDataPtr > 0)
-                            *frameBufferPtr = activePalette[*gfxDataPtr];
+                            *frameBufferPtr = activePalette32[*gfxDataPtr];
                         frameBufferPtr += SCREEN_XSIZE;
                         gfxDataPtr -= 0x10;
                         break;
@@ -1227,7 +1220,7 @@ void DrawVLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[0x10 * tileY + tileX16 + tiles128x128.gfxDataPos[chunk]];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             frameBufferPtr += SCREEN_XSIZE;
                             gfxDataPtr += 0x10;
                         }
@@ -1236,7 +1229,7 @@ void DrawVLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[0x10 * tileY + tileOffsetXFlipX + tiles128x128.gfxDataPos[chunk]];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             frameBufferPtr += SCREEN_XSIZE;
                             gfxDataPtr += 0x10;
                         }
@@ -1245,7 +1238,7 @@ void DrawVLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetXFlipY + tiles128x128.gfxDataPos[chunk] - 0x10 * tileY];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             frameBufferPtr += SCREEN_XSIZE;
                             gfxDataPtr -= 0x10;
                         }
@@ -1254,7 +1247,7 @@ void DrawVLineScrollLayer(int layerID)
                         gfxDataPtr    = &tilesetGFXData[tileOffsetXFlipXY + tiles128x128.gfxDataPos[chunk] - 16 * tileY];
                         while (tilePxLineCnt--) {
                             if (*gfxDataPtr > 0)
-                                *frameBufferPtr = activePalette[*gfxDataPtr];
+                                *frameBufferPtr = activePalette32[*gfxDataPtr];
                             frameBufferPtr += SCREEN_XSIZE;
                             gfxDataPtr -= 0x10;
                         }
@@ -1296,12 +1289,11 @@ void Draw3DFloorLayer(int layerID)
     int sinValue            = sinM[layer->angle];
     int cosValue            = cosM[layer->angle];
     byte *linePtr           = gfxLineBuffer;
-    ushort *frameBufferPtr  = &Engine.frameBuffer[132 * SCREEN_XSIZE];
+    uint *frameBufferPtr  = &Engine.frameBuffer[132 * SCREEN_XSIZE];
     int layerXPos           = layer->XPos >> 4;
     int ZBuffer             = layerZPos >> 4;
     for (int i = 4; i < 112; ++i) {
         if (!(i & 1)) {
-            activePalette   = fullPalette[*linePtr];
             activePalette32 = fullPalette32[*linePtr];
             linePtr++;
         }
@@ -1324,7 +1316,7 @@ void Draw3DFloorLayer(int layerID)
                     default: break;
                 }
                 if (*tilePixel > 0)
-                    *frameBufferPtr = activePalette[*tilePixel];
+                    *frameBufferPtr = activePalette32[*tilePixel];
             }
             ++frameBufferPtr;
             ++lineBuffer;
@@ -1347,13 +1339,12 @@ void Draw3DSkyLayer(int layerID)
     int layerYPos           = layer->YPos;
     int sinValue            = sinM[layer->angle & 0x1FF];
     int cosValue            = cosM[layer->angle & 0x1FF];
-    ushort *frameBufferPtr  = &Engine.frameBuffer[132 * SCREEN_XSIZE];
+    uint *frameBufferPtr  = &Engine.frameBuffer[132 * SCREEN_XSIZE];
     byte *linePtr           = &gfxLineBuffer[132];
     int layerXPos           = layer->XPos >> 4;
     int layerZPos           = layer->ZPos >> 4;
     for (int i = TILE_SIZE / 2; i < SCREEN_YSIZE - TILE_SIZE; ++i) {
         if (!(i & 1)) {
-            activePalette   = fullPalette[*linePtr];
             activePalette32 = fullPalette32[*linePtr];
             linePtr++;
         }
@@ -1376,7 +1367,7 @@ void Draw3DSkyLayer(int layerID)
                     default: break;
                 }
                 if (*tilePixel > 0)
-                    *frameBufferPtr = activePalette[*tilePixel];
+                    *frameBufferPtr = activePalette32[*tilePixel];
             }
             if (lineBuffer & 1)
                 ++frameBufferPtr;
@@ -1421,35 +1412,17 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
         return;
     if (A > 0xFF)
         A = 0xFF;
-    int pitch              = SCREEN_XSIZE - width;
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
-    ushort clr             = (B >> 3) | 32 * (G >> 2) | ((ushort)(R >> 3) << 11);
-    if (A == 0xFF) {
-        int h = height;
-        while (h--) {
-            int w = width;
-            while (w--) {
-                *frameBufferPtr = clr;
-                ++frameBufferPtr;
-            }
-            frameBufferPtr += pitch;
-        }
-    }
-    else {
-        int h = height;
-        while (h--) {
-            int w = width;
-            while (w--) {
-                short *blendPtrB = &blendLookupTable[BLENDTABLE_XSIZE * (0xFF - A)];
-                short *blendPtrA = &blendLookupTable[BLENDTABLE_XSIZE * A];
-                *frameBufferPtr  = (blendPtrB[*frameBufferPtr & (BLENDTABLE_XSIZE-1)] + blendPtrA[((byte)(B >> 3) | (byte)(32 * (G >> 2))) & 0x1F])
-                                  | ((blendPtrB[(*frameBufferPtr & 0x7E0) >> 6] + blendPtrA[(clr & 0x7E0) >> 6]) << 6)
-                                  | ((blendPtrB[(*frameBufferPtr & 0xF800) >> 11] + blendPtrA[(clr & 0xF800) >> 11]) << 11);
-                ++frameBufferPtr;
-            }
-            frameBufferPtr += pitch;
-        }
-    }
+
+    uint clr = (A << 24) | ( B << 16) |  (G << 8) | (R);
+
+    SDL_Rect tgt;
+    tgt.x = XPos;
+    tgt.y = YPos;
+    tgt.w = width;
+    tgt.h = height;
+
+    SDL_FillRect(Engine.frameSurf, &tgt, clr);
+
 #endif
 
 #if RETRO_RENDERTYPE == RETRO_HW_RENDER
@@ -1476,7 +1449,10 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
     if (width <= 0 || height <= 0)
         return;
     int yOffset = SCREEN_XSIZE - width;
-    for (ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];; frameBufferPtr += yOffset) {
+
+
+
+    for (uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];; frameBufferPtr += yOffset) {
         height--;
         if (!height)
             break;
@@ -1495,6 +1471,7 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
 void DrawScaledTintMask(int direction, int XPos, int YPos, int pivotX, int pivotY, int scaleX, int scaleY, int width, int height, int sprX,
                                  int sprY, int sheetID)
 {
+return;
 #if RETRO_RENDERTYPE == RETRO_SW_RENDER
     int roundedYPos = 0;
     int roundedXPos = 0;
@@ -1544,7 +1521,7 @@ void DrawScaledTintMask(int direction, int XPos, int YPos, int pivotX, int pivot
     int gfxwidth           = surface->width;
     //byte *lineBuffer       = &gfxLineBuffer[trueYPos];
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[trueXPos + SCREEN_XSIZE * trueYPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[trueXPos + SCREEN_XSIZE * trueYPos];
     if (direction == FLIP_X) {
         byte *gfxDataPtr = &gfxData[widthM1];
         int gfxPitch     = 0;
@@ -1621,15 +1598,14 @@ void DrawSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, i
     int gfxPitch           = surface->width - width;
     byte *lineBuffer       = &gfxLineBuffer[YPos];
     byte *gfxDataPtr       = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
     while (height--) {
-        activePalette   = fullPalette[*lineBuffer];
         activePalette32 = fullPalette32[*lineBuffer];
         lineBuffer++;
         int w                    = width;
         while (w--) {
             if (*gfxDataPtr > 0)
-                *frameBufferPtr = activePalette[*gfxDataPtr];
+                *frameBufferPtr = activePalette32[*gfxDataPtr];
             ++gfxDataPtr;
             ++frameBufferPtr;
         }
@@ -1675,7 +1651,7 @@ void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int 
     int gfxPitch;
     byte *lineBuffer;
     byte *gfxData;
-    ushort *frameBufferPtr;
+    uint *frameBufferPtr;
     switch (direction) {
         case FLIP_NONE:
             pitch          = SCREEN_XSIZE - width;
@@ -1685,13 +1661,12 @@ void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int 
             frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
 
             while (height--) {
-                activePalette   = fullPalette[*lineBuffer];
                 activePalette32 = fullPalette32[*lineBuffer];
                 lineBuffer++;
                 int w                  = width;
                 while (w--) {
                     if (*gfxData > 0)
-                        *frameBufferPtr = activePalette[*gfxData];
+                        *frameBufferPtr = activePalette32[*gfxData];
                     ++gfxData;
                     ++frameBufferPtr;
                 }
@@ -1706,13 +1681,12 @@ void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int 
             gfxData        = &graphicData[widthFlip - 1 + sprX + surface->width * sprY + surface->dataPosition];
             frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
             while (height--) {
-                activePalette   = fullPalette[*lineBuffer];
                 activePalette32 = fullPalette32[*lineBuffer];
                 lineBuffer++;
                 int w                  = width;
                 while (w--) {
                     if (*gfxData > 0)
-                        *frameBufferPtr = activePalette[*gfxData];
+                        *frameBufferPtr = activePalette32[*gfxData];
                     --gfxData;
                     ++frameBufferPtr;
                 }
@@ -1728,13 +1702,12 @@ void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int 
             gfxData        = &graphicData[sprX + surface->width * (sprY + heightFlip - 1) + surface->dataPosition];
             frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
             while (height--) {
-                activePalette   = fullPalette[*lineBuffer];
                 activePalette32 = fullPalette32[*lineBuffer];
                 lineBuffer++;
                 int w                  = width;
                 while (w--) {
                     if (*gfxData > 0)
-                        *frameBufferPtr = activePalette[*gfxData];
+                        *frameBufferPtr = activePalette32[*gfxData];
                     ++gfxData;
                     ++frameBufferPtr;
                 }
@@ -1749,13 +1722,12 @@ void DrawSpriteFlipped(int XPos, int YPos, int width, int height, int sprX, int 
             gfxData        = &graphicData[widthFlip - 1 + sprX + surface->width * (sprY + heightFlip - 1) + surface->dataPosition];
             frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
             while (height--) {
-                activePalette   = fullPalette[*lineBuffer];
                 activePalette32 = fullPalette32[*lineBuffer];
                 lineBuffer++;
                 int w                  = width;
                 while (w--) {
                     if (*gfxData > 0)
-                        *frameBufferPtr = activePalette[*gfxData];
+                        *frameBufferPtr = activePalette32[*gfxData];
                     --gfxData;
                     ++frameBufferPtr;
                 }
@@ -1823,19 +1795,18 @@ void DrawSpriteScaled(int direction, int XPos, int YPos, int pivotX, int pivotY,
     int gfxwidth           = surface->width;
     byte *lineBuffer       = &gfxLineBuffer[trueYPos];
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[trueXPos + SCREEN_XSIZE * trueYPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[trueXPos + SCREEN_XSIZE * trueYPos];
     if (direction == FLIP_X) {
         byte *gfxDataPtr = &gfxData[widthM1];
         int gfxPitch     = 0;
         while (height--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int roundXPos          = roundedXPos;
             int w                  = width;
             while (w--) {
                 if (*gfxDataPtr > 0)
-                    *frameBufferPtr = activePalette[*gfxDataPtr];
+                    *frameBufferPtr = activePalette32[*gfxDataPtr];
                 int offsetX = finalscaleX + roundXPos;
                 gfxDataPtr -= offsetX >> 11;
                 gfxPitch += offsetX >> 11;
@@ -1853,14 +1824,13 @@ void DrawSpriteScaled(int direction, int XPos, int YPos, int pivotX, int pivotY,
         int gfxPitch = 0;
         int h        = height;
         while (h--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int roundXPos          = roundedXPos;
             int w                  = width;
             while (w--) {
                 if (*gfxData > 0)
-                    *frameBufferPtr = activePalette[*gfxData];
+                    *frameBufferPtr = activePalette32[*gfxData];
                 int offsetX = finalscaleX + roundXPos;
                 gfxData += offsetX >> 11;
                 gfxPitch += offsetX >> 11;
@@ -1963,7 +1933,7 @@ void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY
     GFXSurface *surface    = &gfxSurface[sheetID];
     int pitch              = SCREEN_XSIZE - maxX;
     int lineSize           = surface->widthShift;
-    ushort *frameBufferPtr = &Engine.frameBuffer[left + SCREEN_XSIZE * top];
+    uint *frameBufferPtr = &Engine.frameBuffer[left + SCREEN_XSIZE * top];
     byte *lineBuffer       = &gfxLineBuffer[top];
     int startX             = left - XPos;
     int startY             = top - YPos;
@@ -1979,7 +1949,6 @@ void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY
         int drawX = sprXPos - (cosine * startX - sine * startY) - 0x100;
         int drawY = cosine * startY + sprYPos + sine * startX;
         while (maxY--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int finalX             = drawX;
@@ -1989,7 +1958,7 @@ void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY
                 if (finalX > shiftPivot && finalX < fullwidth && finalY > shiftheight && finalY < fullheight) {
                     byte index = gfxData[(finalY >> 9 << lineSize) + (finalX >> 9)];
                     if (index > 0)
-                        *frameBufferPtr = activePalette[index];
+                        *frameBufferPtr = activePalette32[index];
                 }
                 ++frameBufferPtr;
                 finalX -= cosine;
@@ -2004,7 +1973,6 @@ void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY
         int drawX = sprXPos + cosine * startX - sine * startY;
         int drawY = cosine * startY + sprYPos + sine * startX;
         while (maxY--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int finalX             = drawX;
@@ -2014,7 +1982,7 @@ void DrawSpriteRotated(int direction, int XPos, int YPos, int pivotX, int pivotY
                 if (finalX > shiftPivot && finalX < fullwidth && finalY > shiftheight && finalY < fullheight) {
                     byte index = gfxData[(finalY >> 9 << lineSize) + (finalX >> 9)];
                     if (index > 0)
-                        *frameBufferPtr = activePalette[index];
+                        *frameBufferPtr = activePalette32[index];
                 }
                 ++frameBufferPtr;
                 finalX += cosine;
@@ -2121,7 +2089,7 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
     GFXSurface *surface    = &gfxSurface[sheetID];
     int pitch              = SCREEN_XSIZE - maxX;
     int lineSize           = surface->widthShift;
-    ushort *frameBufferPtr = &Engine.frameBuffer[left + SCREEN_XSIZE * top];
+    uint *frameBufferPtr = &Engine.frameBuffer[left + SCREEN_XSIZE * top];
     byte *lineBuffer       = &gfxLineBuffer[top];
     int startX             = left - XPos;
     int startY             = top - YPos;
@@ -2137,7 +2105,6 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
         int drawX = sprXPos - (cosine * startX - sine * startY) - (truescale >> 1);
         int drawY = cosine * startY + sprYPos + sine * startX;
         while (maxY--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int finalX             = drawX;
@@ -2147,7 +2114,7 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
                 if (finalX > shiftPivot && finalX < fullwidth && finalY > shiftheight && finalY < fullheight) {
                     byte index = gfxData[(finalY >> 9 << lineSize) + (finalX >> 9)];
                     if (index > 0)
-                        *frameBufferPtr = activePalette[index];
+                        *frameBufferPtr = activePalette32[index];
                 }
                 ++frameBufferPtr;
                 finalX -= cosine;
@@ -2162,7 +2129,6 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
         int drawX = sprXPos + cosine * startX - sine * startY;
         int drawY = cosine * startY + sprYPos + sine * startX;
         while (maxY--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int finalX             = drawX;
@@ -2172,7 +2138,7 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
                 if (finalX > shiftPivot && finalX < fullwidth && finalY > shiftheight && finalY < fullheight) {
                     byte index = gfxData[(finalY >> 9 << lineSize) + (finalX >> 9)];
                     if (index > 0)
-                        *frameBufferPtr = activePalette[index];
+                        *frameBufferPtr = activePalette32[index];
                 }
                 ++frameBufferPtr;
                 finalX += cosine;
@@ -2215,15 +2181,14 @@ void DrawBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int 
     int gfxPitch           = surface->width - width;
     byte *lineBuffer       = &gfxLineBuffer[YPos];
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
     while (height--) {
-        activePalette   = fullPalette[*lineBuffer];
         activePalette32 = fullPalette32[*lineBuffer];
         lineBuffer++;
         int w                  = width;
         while (w--) {
             if (*gfxData > 0)
-                *frameBufferPtr = ((activePalette[*gfxData] & 0xF7DE) >> 1) + ((*frameBufferPtr & 0xF7DE) >> 1);
+                *frameBufferPtr = activePalette32[*gfxData];
             ++gfxData;
             ++frameBufferPtr;
         }
@@ -2258,21 +2223,26 @@ void DrawAlphaBlendedSprite(int XPos, int YPos, int width, int height, int sprX,
 
     if (alpha > 0xFF)
         alpha = 0xFF;
+
     GFXSurface *surface    = &gfxSurface[sheetID];
+
     int pitch              = SCREEN_XSIZE - width;
     int gfxPitch           = surface->width - width;
+
     byte *lineBuffer       = &gfxLineBuffer[YPos];
+
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+
+    uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+
     if (alpha == 0xFF) {
         while (height--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int w                  = width;
             while (w--) {
                 if (*gfxData > 0)
-                    *frameBufferPtr = activePalette[*gfxData];
+                    *frameBufferPtr = activePalette32[*gfxData];
                 ++gfxData;
                 ++frameBufferPtr;
             }
@@ -2282,18 +2252,38 @@ void DrawAlphaBlendedSprite(int XPos, int YPos, int width, int height, int sprX,
     }
     else {
         while (height--) {
-            activePalette   = fullPalette[*lineBuffer];
             activePalette32 = fullPalette32[*lineBuffer];
             lineBuffer++;
             int w                  = width;
             while (w--) {
                 if (*gfxData > 0) {
-                    ushort colour         = activePalette[*gfxData];
-                    short *blendTablePtrA = &blendLookupTable[BLENDTABLE_XSIZE * ((BLENDTABLE_YSIZE-1) - alpha)];
-                    short *blendTablePtrB = &blendLookupTable[BLENDTABLE_XSIZE * alpha];
-                    *frameBufferPtr = (blendTablePtrA[*frameBufferPtr & (BLENDTABLE_XSIZE - 1)] + blendTablePtrB[colour & (BLENDTABLE_XSIZE - 1)])
-                                      | ((blendTablePtrA[(*frameBufferPtr & 0x7E0) >> 6] + blendTablePtrB[(colour & 0x7E0) >> 6]) << 6)
-                                      | ((blendTablePtrA[(*frameBufferPtr & 0xF800) >> 11] + blendTablePtrB[(colour & 0xF800) >> 11]) << 11);
+
+                    uint src = activePalette32[*gfxData];
+                    uint dst = *frameBufferPtr;
+
+                    byte srcA = alpha;
+
+                    byte srcB = src >> 16 & 0xFF;
+                    byte srcG = src >> 8 & 0xFF;
+                    byte srcR = src & 0xFF;
+
+                    srcR = (srcR * srcA) / 255;
+                    srcG = (srcG * srcA) / 255;
+                    srcB = (srcB * srcA) / 255;
+
+
+                    byte dstB = dst >> 16 & 0xFF;
+                    byte dstG = dst >> 8 & 0xFF;
+                    byte dstR = dst & 0xFF;
+
+                    dstR = srcR + ((255 - srcA) * dstR) / 255;
+                    dstG = srcG + ((255 - srcA) * dstG) / 255;
+                    dstB = srcB + ((255 - srcA) * dstB) / 255;
+
+                    *frameBufferPtr = (0xFF << 24)
+                                     | (dstB << 16)
+                                     | (dstG << 8)
+                                     |  dstR;
                 }
                 ++gfxData;
                 ++frameBufferPtr;
@@ -2331,41 +2321,51 @@ void DrawAdditiveBlendedSprite(int XPos, int YPos, int width, int height, int sp
     if (alpha > 0xFF)
         alpha = 0xFF;
 
-    short *blendTablePtr   = &blendLookupTable[BLENDTABLE_XSIZE * alpha];
     GFXSurface *surface    = &gfxSurface[sheetID];
     int pitch              = SCREEN_XSIZE - width;
     int gfxPitch           = surface->width - width;
     byte *lineBuffer       = &gfxLineBuffer[YPos];
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
 
     while (height--) {
-        activePalette   = fullPalette[*lineBuffer];
         activePalette32 = fullPalette32[*lineBuffer];
         lineBuffer++;
         int w                  = width;
         while (w--) {
             if (*gfxData > 0) {
-                ushort colour   = activePalette[*gfxData];
-                int v20         = 0;
-                int v21         = 0;
-                int finalColour = 0;
+                uint src = activePalette32[*gfxData];
+                uint dst = *frameBufferPtr;
 
-                if (((ushort)blendTablePtr[(colour & 0xF800) >> 11] << 11) + (*frameBufferPtr & 0xF800) <= 0xF800)
-                    v20 = ((ushort)blendTablePtr[(colour & 0xF800) >> 11] << 11) + (ushort)(*frameBufferPtr & 0xF800);
-                else
-                    v20 = 0xF800;
-                int v12 = ((ushort)blendTablePtr[(colour & 0x7E0) >> 6] << 6) + (*frameBufferPtr & 0x7E0);
-                if (v12 <= 0x7E0)
-                    v21 = v12 | v20;
-                else
-                    v21 = v20 | 0x7E0;
-                int v13 = (ushort)blendTablePtr[colour & (BLENDTABLE_XSIZE-1)] + (*frameBufferPtr & 0x1F);
-                if (v13 <= 31)
-                    finalColour = v13 | v21;
-                else
-                    finalColour = v21 | 0x1F;
-                *frameBufferPtr = finalColour;
+                byte srcA = alpha;
+
+                byte srcB = src >> 16 & 0xFF;
+                byte srcG = src >> 8 & 0xFF;
+                byte srcR = src & 0xFF;
+
+                srcR = (srcR * srcA) / 255;
+                srcG = (srcG * srcA) / 255;
+                srcB = (srcB * srcA) / 255;
+
+                byte dstB = dst >> 16 & 0xFF;
+                byte dstG = dst >> 8 & 0xFF;
+                byte dstR = dst & 0xFF;
+
+                dstR = srcR + dstR;
+                if (dstR > 255)
+                    dstR = 255;
+                dstG = srcG + dstG;
+                if (dstG > 255)
+                    dstG = 255;
+                dstB = srcB + dstB;
+                if (dstB > 255)
+                    dstB = 255;
+
+                *frameBufferPtr = (0xFF << 24)
+                                 | (dstB << 16)
+                                 | (dstG << 8)
+                                 |  dstR;
+
             }
             ++gfxData;
             ++frameBufferPtr;
@@ -2402,34 +2402,50 @@ void DrawSubtractiveBlendedSprite(int XPos, int YPos, int width, int height, int
     if (alpha > 0xFF)
         alpha = 0xFF;
 
-    short *subBlendTable   = &blendLookupTable[BLENDTABLE_XSIZE * alpha];
     GFXSurface *surface    = &gfxSurface[sheetID];
     int pitch              = SCREEN_XSIZE - width;
     int gfxPitch           = surface->width - width;
     byte *lineBuffer       = &gfxLineBuffer[YPos];
     byte *gfxData          = &graphicData[sprX + surface->width * sprY + surface->dataPosition];
-    ushort *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
+    uint *frameBufferPtr = &Engine.frameBuffer[XPos + SCREEN_XSIZE * YPos];
 
     while (height--) {
-        activePalette   = fullPalette[*lineBuffer];
         activePalette32 = fullPalette32[*lineBuffer];
         lineBuffer++;
         int w                  = width;
         while (w--) {
             if (*gfxData > 0) {
-                ushort colour      = activePalette[*gfxData];
-                ushort finalColour = 0;
-                if ((*frameBufferPtr & 0xF800) - ((ushort)subBlendTable[(colour & 0xF800) >> 11] << 11) <= 0)
-                    finalColour = 0;
-                else
-                    finalColour = (ushort)(*frameBufferPtr & 0xF800) - ((ushort)subBlendTable[(colour & 0xF800) >> 11] << 11);
-                int v12 = (*frameBufferPtr & 0x7E0) - ((ushort)subBlendTable[(colour & 0x7E0) >> 6] << 6);
-                if (v12 > 0)
-                    finalColour |= v12;
-                int v13 = (*frameBufferPtr & (BLENDTABLE_XSIZE - 1)) - (ushort)subBlendTable[colour & (BLENDTABLE_XSIZE - 1)];
-                if (v13 > 0)
-                    finalColour |= v13;
-                *frameBufferPtr = finalColour;
+                uint src = activePalette32[*gfxData];
+                uint dst = *frameBufferPtr;
+
+                byte srcA = alpha;
+
+                byte srcB = src >> 16 & 0xFF;
+                byte srcG = src >> 8 & 0xFF;
+                byte srcR = src & 0xFF;
+
+                srcR = (srcR * srcA) / 255;
+                srcG = (srcG * srcA) / 255;
+                srcB = (srcB * srcA) / 255;
+
+                byte dstB = dst >> 16 & 0xFF;
+                byte dstG = dst >> 8 & 0xFF;
+                byte dstR = dst & 0xFF;
+
+                dstR = dstR - srcR;
+                if (dstR > 255)
+                    dstR = 255;
+                dstG = dstG - srcG;
+                if (dstG > 255)
+                    dstG = 255;
+                dstB = dstB - srcB;
+                if (dstB > 255)
+                    dstB = 255;
+
+                *frameBufferPtr = (0xFF << 24)
+                                 | (dstB << 16)
+                                 | (dstG << 8)
+                                 |  dstR;
             }
             ++gfxData;
             ++frameBufferPtr;
@@ -2549,11 +2565,13 @@ void DrawFace(void *v, uint colour)
 {
     Vertex *verts = (Vertex *)v;
 
-    int alpha = (colour & 0x7F000000) >> 23;
+    int alpha = (colour >> 24) & 0xFF;
+
     if (alpha < 1)
         return;
     if (alpha > 0xFF)
         alpha = 0xFF;
+
     if (verts[0].x < 0 && verts[1].x < 0 && verts[2].x < 0 && verts[3].x < 0)
         return;
     if (verts[0].x > SCREEN_XSIZE && verts[1].x > SCREEN_XSIZE && verts[2].x > SCREEN_XSIZE && verts[3].x > SCREEN_XSIZE)
@@ -2620,9 +2638,9 @@ void DrawFace(void *v, uint colour)
     processScanEdge(&verts[vertexC], &verts[vertexD]);
     processScanEdge(&verts[vertexB], &verts[vertexD]);
 
-    ushort colour16 = ((signed int)(byte)colour >> 3) | 32 * (((colour >> 8) & 0xFF) >> 2) | ((ushort)(((colour >> 16) & 0xFF) >> 3) << 11);
+//    ushort colour16 = ((signed int)(byte)colour >> 3) | 32 * (((colour >> 8) & 0xFF) >> 2) | ((ushort)(((colour >> 16) & 0xFF) >> 3) << 11);
 
-    ushort *frameBufferPtr = &Engine.frameBuffer[SCREEN_XSIZE * faceTop];
+    uint *frameBufferPtr = &Engine.frameBuffer[SCREEN_XSIZE * faceTop];
     if (alpha == 255) {
         while (faceTop < faceBottom) {
             int startX = faceLineStart[faceTop];
@@ -2635,11 +2653,11 @@ void DrawFace(void *v, uint colour)
                     startX = 0;
                 if (endX > SCREEN_XSIZE - 1)
                     endX = SCREEN_XSIZE - 1;
-                ushort *fbPtr = &frameBufferPtr[startX];
+                uint *fbPtr = &frameBufferPtr[startX];
                 frameBufferPtr += SCREEN_XSIZE;
                 int vertexwidth = endX - startX + 1;
                 while (vertexwidth--) {
-                    *fbPtr = colour16;
+                    *fbPtr = colour;
                     ++fbPtr;
                 }
             }
@@ -2658,16 +2676,53 @@ void DrawFace(void *v, uint colour)
                     startX = 0;
                 if (endX > SCREEN_XSIZE - 1)
                     endX = SCREEN_XSIZE - 1;
-                ushort *fbPtr = &frameBufferPtr[startX];
+                uint *fbPtr = &frameBufferPtr[startX];
                 frameBufferPtr += SCREEN_XSIZE;
                 int vertexwidth = endX - startX + 1;
                 while (vertexwidth--) {
+
+                    // TODO: doesn't work right
+
+                    uint src = colour;
+                    uint dst = *fbPtr;
+
+
+                    byte srcA = src >> 24 & 0xFF;
+
+                    byte srcB = src >> 16 & 0xFF;
+                    byte srcG = src >> 8 & 0xFF;
+                    byte srcR = src & 0xFF;
+
+                    srcR = (srcR * srcA) / 255;
+                    srcG = (srcG * srcA) / 255;
+                    srcB = (srcB * srcA) / 255;
+
+
+                    byte dstB = dst >> 16 & 0xFF;
+                    byte dstG = dst >> 8 & 0xFF;
+                    byte dstR = dst & 0xFF;
+
+                    dstR = srcR + ((255 - srcA) * dstR) / 255;
+                    dstG = srcG + ((255 - srcA) * dstG) / 255;
+                    dstB = srcB + ((255 - srcA) * dstB) / 255;
+
+                    *fbPtr = (0xFF << 24)
+                                     | (dstB << 16)
+                                     | (dstG << 8)
+                                     |  dstR;
+
+
+/*
+
                     short *blendTableA = &blendLookupTable[BLENDTABLE_XSIZE * ((BLENDTABLE_YSIZE - 1) - alpha)];
                     short *blendTableB = &blendLookupTable[BLENDTABLE_XSIZE * alpha];
                     *fbPtr             = (blendTableA[*fbPtr & (BLENDTABLE_XSIZE - 1)] + blendTableB[colour16 & (BLENDTABLE_XSIZE - 1)])
                              | ((blendTableA[(*fbPtr & 0x7E0) >> 6] + blendTableB[(colour16 & 0x7E0) >> 6]) << 6)
                              | ((blendTableA[(*fbPtr & 0xF800) >> 11] + blendTableB[(colour16 & 0xF800) >> 11]) << 11);
+*/
                     ++fbPtr;
+
+
                 }
             }
             ++faceTop;
@@ -2749,12 +2804,11 @@ void DrawTexturedFace(void *v, byte sheetID)
     processScanEdgeUV(&verts[vertexC], &verts[vertexD]);
     processScanEdgeUV(&verts[vertexB], &verts[vertexD]);
 
-    ushort *frameBufferPtr = &Engine.frameBuffer[SCREEN_XSIZE * faceTop];
+    uint *frameBufferPtr = &Engine.frameBuffer[SCREEN_XSIZE * faceTop];
     byte *sheetPtr         = &graphicData[gfxSurface[sheetID].dataPosition];
     int shiftwidth         = gfxSurface[sheetID].widthShift;
     byte *lineBuffer       = &gfxLineBuffer[faceTop];
     while (faceTop < faceBottom) {
-        activePalette   = fullPalette[*lineBuffer];
         activePalette32 = fullPalette32[*lineBuffer];
         lineBuffer++;
         int startX             = faceLineStart[faceTop];
@@ -2784,7 +2838,7 @@ void DrawTexturedFace(void *v, byte sheetID)
                 VPos -= startX * bufferedVPos;
                 startX = 0;
             }
-            ushort *fbPtr = &frameBufferPtr[startX];
+            uint *fbPtr = &frameBufferPtr[startX];
             frameBufferPtr += SCREEN_XSIZE;
             int counter = posDifference + 1;
             while (counter--) {
@@ -2794,7 +2848,7 @@ void DrawTexturedFace(void *v, byte sheetID)
                     VPos = 0;
                 ushort index = sheetPtr[(VPos >> 16 << shiftwidth) + (UPos >> 16)];
                 if (index > 0)
-                    *fbPtr = activePalette[index];
+                    *fbPtr = activePalette32[index];
                 fbPtr++;
                 UPos += bufferedUPos;
                 VPos += bufferedVPos;
