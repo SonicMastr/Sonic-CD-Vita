@@ -2168,6 +2168,7 @@ void DrawSpriteRotozoom(int direction, int XPos, int YPos, int pivotX, int pivot
 #endif
 }
 
+// This one actually does average between colors
 void DrawBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int sprY, int sheetID)
 {
 #if RETRO_RENDERTYPE == RETRO_SW_RENDER
@@ -2200,7 +2201,13 @@ void DrawBlendedSprite(int XPos, int YPos, int width, int height, int sprX, int 
         int w                  = width;
         while (w--) {
             if (*gfxData > 0)
-                *frameBufferPtr = activePalette32[*gfxData];
+            {
+                uint src = activePalette32[*gfxData];
+                uint dst = *frameBufferPtr;
+
+                *frameBufferPtr = ((src & 0xFEFEFEFE) >> 1) + ((dst & 0xFEFEFEFE) >> 1);
+
+            }
             ++gfxData;
             ++frameBufferPtr;
         }
@@ -2722,8 +2729,6 @@ void DrawFace(void *v, uint colour)
                                      | (dstB << 16)
                                      | (dstG << 8)
                                      |  dstR;
-
-
 /*
 
                     short *blendTableA = &blendLookupTable[BLENDTABLE_XSIZE * ((BLENDTABLE_YSIZE - 1) - alpha)];
