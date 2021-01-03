@@ -224,12 +224,19 @@ int ProcessVideo()
                     // video lagging uh oh
                 }
 
-                memset(Engine.videoFrameBuffer, 0, (videoWidth * videoHeight) * sizeof(uint));
                 uint px = 0;
+                int pitch = 0;
+                uint* pixels = NULL;
+                SDL_LockTexture(Engine.videoBuffer, NULL, (void **)&pixels, &pitch);
+
                 for (uint i = 0; i < (videoWidth * videoHeight) * sizeof(uint); i += sizeof(uint)) {
-                    Engine.videoFrameBuffer[px++] = (videoVidData->pixels[i + 3] << 24 | videoVidData->pixels[i] << 16
-                                                     | videoVidData->pixels[i + 1] << 8 | videoVidData->pixels[i + 2] << 0);
+                    pixels[px++] = (0xFF << 24 | videoVidData->pixels[i+2] << 16
+                                                     | videoVidData->pixels[i + 1] << 8 | videoVidData->pixels[i] << 0);
+
+
                 }
+                SDL_UnlockTexture(Engine.videoBuffer);
+
 
                 THEORAPLAY_freeVideo(videoVidData);
                 videoVidData = NULL;
@@ -247,20 +254,13 @@ int ProcessVideo()
 
 
 void SetupVideoBuffer(int width, int height) {
-    Engine.videoBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    Engine.videoBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, width, height);
 
     if (!Engine.videoBuffer) 
         printLog("Failed to create video buffer!");
-
-    Engine.videoFrameBuffer = new uint[width * height];
 }
 void CloseVideoBuffer() {
     if (videoPlaying) {
-        if (Engine.videoFrameBuffer) {
-            delete[] Engine.videoFrameBuffer;
-            Engine.videoFrameBuffer = nullptr;
-        }
-
         SDL_DestroyTexture(Engine.videoBuffer);
         Engine.videoBuffer = nullptr;
     }

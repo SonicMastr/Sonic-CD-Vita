@@ -101,14 +101,11 @@ void RenderRenderDevice()
         SDL_RenderCopy(Engine.renderer, Engine.screenBuffer, NULL, &destScreenPos);
     }
     else {
-        SDL_LockTexture(Engine.videoBuffer, NULL, (void **)&pixels, &pitch);
-        memcpy(pixels, Engine.videoFrameBuffer, pitch * videoHeight);
-        SDL_UnlockTexture(Engine.videoBuffer);
-
+        // texture is updated directly in Video.cpp
         SDL_RenderCopy(Engine.renderer, Engine.videoBuffer, NULL, &destScreenPos);
     }
 
-    if (fadeMode > 0) {
+    if (fadeMode > 0 && Engine.gameMode != ENGINE_VIDEOWAIT) {
         SDL_SetRenderDrawColor(Engine.renderer, fadeR, fadeG, fadeB, fadeA);
         SDL_RenderFillRect(Engine.renderer, NULL);
     }
