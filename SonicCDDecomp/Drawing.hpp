@@ -32,7 +32,7 @@ struct GFXSurface
     int dataPosition;
 };
 
-extern short tintLookupTable[TINTTABLE_SIZE];
+extern uint tintLookupTable[TINTTABLE_SIZE];
 
 extern int SCREEN_XSIZE;
 extern int SCREEN_CENTERX;

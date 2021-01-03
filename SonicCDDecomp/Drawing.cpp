@@ -1,6 +1,6 @@
 #include "RetroEngine.hpp"
 
-short tintLookupTable[TINTTABLE_SIZE];
+uint tintLookupTable[TINTTABLE_SIZE];
 
 int SCREEN_XSIZE   = 424;
 int SCREEN_CENTERX = 424 / 2;
@@ -134,10 +134,10 @@ void GenerateBlendLookupTable(void)
 {
     int tintValue;
     for (int i = 0; i < TINTTABLE_SIZE; i++) {
-        tintValue = ((i & 0x1F) + ((i & 0x7E0) >> 6) + ((i & 0xF800) >> 11)) / 3 + 6;
-        if (tintValue > 31)
-            tintValue = 31;
-        tintLookupTable[i] = 0x841 * tintValue;
+        tintValue = ((i & 0xFF) + ((i & 0xFF00) >> 8) + ((i & 0xFF0000) >> 16)) / 3 + 8;
+        if (tintValue > 255)
+            tintValue = 255;
+        tintLookupTable[i] = 0x10101 * tintValue;
     }
 }
 
@@ -1421,7 +1421,20 @@ void DrawRectangle(int XPos, int YPos, int width, int height, int R, int G, int 
     tgt.w = width;
     tgt.h = height;
 
-    SDL_FillRect(Engine.frameSurf, &tgt, clr);
+    if (A == 0xFF) {
+        SDL_FillRect(Engine.frameSurf, &tgt, clr);
+    }
+    else {
+        SDL_Rect src;
+        src.x = 0;
+        src.y = 0;
+        src.w = width;
+        src.h = height;
+        SDL_Surface *s = SDL_CreateRGBSurface(0,width,height,32, 0x000000FF, 0x0000FF00, 0x00FF0000, 0xFF000000);
+        SDL_FillRect(s, &src, clr);
+        SDL_BlitSurface(s, &src, Engine.frameSurf, &tgt);
+        SDL_FreeSurface(s);
+    }
 
 #endif
 
@@ -1471,7 +1484,6 @@ void DrawTintRectangle(int XPos, int YPos, int width, int height)
 void DrawScaledTintMask(int direction, int XPos, int YPos, int pivotX, int pivotY, int scaleX, int scaleY, int width, int height, int sprX,
                                  int sprY, int sheetID)
 {
-return;
 #if RETRO_RENDERTYPE == RETRO_SW_RENDER
     int roundedYPos = 0;
     int roundedXPos = 0;

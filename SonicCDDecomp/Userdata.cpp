@@ -64,7 +64,7 @@ void InitUserdata()
 {
     // userdata files are loaded from this directory
 #if RETRO_PLATFORM == RETRO_VITA
-    sprintf(gamePath, "ux0:/data/SOCD00001/");
+    sprintf(gamePath, "ux0:/data/SonicCD/");
 #else
     sprintf(gamePath, "");
 #endif
@@ -135,7 +135,7 @@ void InitUserdata()
     else
         sprintf(buffer, "%ssettings.ini", gamePath);
 #elif RETRO_PLATFORM == RETRO_VITA
-    sprintf(buffer, "ux0:/data/SOCD00001/settings.ini");
+    sprintf(buffer, "ux0:/data/SonicCD/settings.ini");
 #else
     sprintf(buffer, "settings.ini");
 #endif

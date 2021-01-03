@@ -20,7 +20,7 @@ inline void printLog(const char *msg, ...)
         else
             sprintf(pathBuffer, "log.txt");
 #elif RETRO_PLATFORM == RETRO_VITA
-        sprintf(pathBuffer, "ux0:/data/SOCD00001/log.txt");
+        sprintf(pathBuffer, "ux0:/data/SonicCD/log.txt");
 #else
         sprintf(pathBuffer, "log.txt");
 #endif

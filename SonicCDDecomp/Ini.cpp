@@ -21,7 +21,7 @@ IniParser::IniParser(const char *filename)
     else
         sprintf(pathBuffer, "%s", filename);
 #elif RETRO_PLATFORM == RETRO_VITA
-    sprintf(pathBuffer, "ux0:/data/SOCD00001/%s",filename);
+    sprintf(pathBuffer, "ux0:/data/SonicCD/%s",filename);
 #else
     sprintf(pathBuffer, "%s", filename);
 #endif
@@ -242,7 +242,7 @@ void IniParser::Write(const char *filename)
     else
         sprintf(pathBuffer, "%s", filename);
 #elif RETRO_PLATFORM == RETRO_VITA
-    sprintf(pathBuffer, "ux0:/data/SOCD00001/%s",filename);
+    sprintf(pathBuffer, "ux0:/data/SonicCD/%s",filename);
 #else
     sprintf(pathBuffer, "%s", filename);
 #endif

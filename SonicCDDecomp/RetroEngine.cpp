@@ -200,7 +200,7 @@ void RetroEngine::Init()
     GenerateBlendLookupTable();
 
 #if RETRO_PLATFORM == RETRO_VITA
-    CheckRSDKFile("ux0:/data/SOCD00001/data.rsdk");
+    CheckRSDKFile("ux0:/data/SonicCD/data.rsdk");
 #else
     CheckRSDKFile("data.rsdk");
 #endif
