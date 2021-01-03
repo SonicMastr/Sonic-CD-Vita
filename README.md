@@ -10,7 +10,6 @@ Make sure you copy your Sonic CD game data to the ux0:/data/SonicCD/ folder
 ## Known Issues
 
 - Rare crash while loading a save or starting new game. Just restart.
-- Sonic on the Main Menu is not transparent like he's supposed to be
 - Menu and Special Stages are extremely slow. This is simply due to the Software renderer and should be fixed when a Hardware renderer is added
 
 # Sonic-CD-11-Decompilation
