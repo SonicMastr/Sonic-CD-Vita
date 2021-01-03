@@ -85,4 +85,9 @@ set(TITLE_VER "01.00")
 dolce_create_vpk("${VPK}" "${TITLE_ID}" "${SELF}"
   NAME "${TITLE_NAME}"
   VERSION "${TITLE_VER}"
+  FILE sce_sys/icon0.png sce_sys/icon0.png
+  FILE sce_sys/pic0.png sce_sys/pic0.png
+	FILE sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
+	FILE sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+	FILE sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
 )
