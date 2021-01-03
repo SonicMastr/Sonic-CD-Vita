@@ -36,7 +36,10 @@ static void videoClose(THEORAPLAY_Io *io)
 
 void PlayVideoFile(char *filePath) { 
     char filepath[0x100];
-    StrCopy(filepath, "videos/");
+
+
+    StrCopy(filepath, gamePath);
+    StrAdd(filepath, "videos/");
     StrAdd(filepath, filePath);
     StrAdd(filepath, ".ogv");
 
@@ -77,7 +80,8 @@ void PlayVideoFile(char *filePath) {
 
         // "temp" but I really cannot be bothered to go through the nightmare that is streaming the audio data
         // (yes I tried, and probably cut years off my life)
-        StrCopy(filepath, "videos/");
+        StrCopy(filepath, gamePath);
+        StrAdd(filepath, "videos/");
         StrAdd(filepath, filePath);
         if (StrComp(filePath, "Good_Ending") || StrComp(filePath, "Bad_Ending") || StrComp(filePath, "Opening")) {
             if (!GetGlobalVariableByName("Options.Soundtrack"))
