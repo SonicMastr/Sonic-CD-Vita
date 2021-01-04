@@ -24,4 +24,6 @@ int ProcessVideo();
 void SetupVideoBuffer(int width, int height);
 void CloseVideoBuffer();
 
+void ProcessVideoStream(void *data, Uint8 *stream, int le);
+
 #endif // !VIDEO_H
