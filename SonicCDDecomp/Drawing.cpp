@@ -2581,12 +2581,11 @@ void DrawFace(void *v, uint colour)
 {
     Vertex *verts = (Vertex *)v;
 
-    int alpha = (colour >> 24) & 0xFF;
-
+    alpha = (colour & 0x7F000000) >> 23;
+    if (alpha > 253)
+        alpha = 0xFF;
     if (alpha < 1)
         return;
-    if (alpha > 0xFF)
-        alpha = 0xFF;
 
     if (verts[0].x < 0 && verts[1].x < 0 && verts[2].x < 0 && verts[3].x < 0)
         return;
@@ -2657,6 +2656,7 @@ void DrawFace(void *v, uint colour)
 //    ushort colour16 = ((signed int)(byte)colour >> 3) | 32 * (((colour >> 8) & 0xFF) >> 2) | ((ushort)(((colour >> 16) & 0xFF) >> 3) << 11);
 
     uint *frameBufferPtr = &Engine.frameBuffer[SCREEN_XSIZE * faceTop];
+
     if (alpha == 255) {
         while (faceTop < faceBottom) {
             int startX = faceLineStart[faceTop];
@@ -2696,9 +2696,6 @@ void DrawFace(void *v, uint colour)
                 frameBufferPtr += SCREEN_XSIZE;
                 int vertexwidth = endX - startX + 1;
                 while (vertexwidth--) {
-
-                    // TODO: doesn't work right
-
                     uint src = colour;
                     uint dst = *fbPtr;
 
@@ -2726,14 +2723,6 @@ void DrawFace(void *v, uint colour)
                                      | (dstB << 16)
                                      | (dstG << 8)
                                      |  dstR;
-/*
-
-                    short *blendTableA = &blendLookupTable[BLENDTABLE_XSIZE * ((BLENDTABLE_YSIZE - 1) - alpha)];
-                    short *blendTableB = &blendLookupTable[BLENDTABLE_XSIZE * alpha];
-                    *fbPtr             = (blendTableA[*fbPtr & (BLENDTABLE_XSIZE - 1)] + blendTableB[colour16 & (BLENDTABLE_XSIZE - 1)])
-                             | ((blendTableA[(*fbPtr & 0x7E0) >> 6] + blendTableB[(colour16 & 0x7E0) >> 6]) << 6)
-                             | ((blendTableA[(*fbPtr & 0xF800) >> 11] + blendTableB[(colour16 & 0xF800) >> 11]) << 11);
-*/
                     ++fbPtr;
 
 
