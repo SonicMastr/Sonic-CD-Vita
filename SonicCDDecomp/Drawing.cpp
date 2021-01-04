@@ -1289,6 +1289,7 @@ void Draw3DFloorLayer(int layerID)
     uint *frameBufferPtr  = &Engine.frameBuffer[132 * SCREEN_XSIZE];
     int layerXPos           = layer->XPos >> 4;
     int ZBuffer             = layerZPos >> 4;
+
     for (int i = 4; i < 112; ++i) {
         if (!(i & 1)) {
             activePalette32 = fullPalette32[*linePtr];
@@ -1340,19 +1341,27 @@ void Draw3DSkyLayer(int layerID)
     byte *linePtr           = &gfxLineBuffer[132];
     int layerXPos           = layer->XPos >> 4;
     int layerZPos           = layer->ZPos >> 4;
+
     for (int i = TILE_SIZE / 2; i < SCREEN_YSIZE - TILE_SIZE; ++i) {
         if (!(i & 1)) {
             activePalette32 = fullPalette32[*linePtr];
             linePtr++;
         }
+
         int xBuffer    = layerYPos / (i << 8) * -cosValue >> 9;
         int yBuffer    = sinValue * (layerYPos / (i << 8)) >> 9;
+
         int XPos       = layerXPos + (3 * sinValue * (layerYPos / (i << 8)) >> 2) - xBuffer * SCREEN_XSIZE;
         int YPos       = layerZPos + (3 * cosValue * (layerYPos / (i << 8)) >> 2) - yBuffer * SCREEN_XSIZE;
+
         int lineBuffer = 0;
+
+        if ((i & 1)) // added
         while (lineBuffer < SCREEN_XSIZE * 2) {
             int tileX = XPos >> 12;
             int tileY = YPos >> 12;
+
+            if (lineBuffer & 1) // added
             if (tileX > -1 && tileX < layerWidth && tileY > -1 && tileY < layerHeight) {
                 int chunk       = tile3DFloorBuffer[(YPos >> 16 << 8) + (XPos >> 16)];
                 byte *tilePixel = &tilesetGFXData[tiles128x128.gfxDataPos[chunk]];
@@ -1363,17 +1372,23 @@ void Draw3DSkyLayer(int layerID)
                     case FLIP_XY: tilePixel += 0xF - (tileX & 0xF) + SCREEN_YSIZE - TILE_SIZE * (tileY & 0xF); break;
                     default: break;
                 }
+
                 if (*tilePixel > 0)
+                {
                     *frameBufferPtr = activePalette32[*tilePixel];
+                }
             }
+
             if (lineBuffer & 1)
                 ++frameBufferPtr;
+
             lineBuffer++;
             XPos += xBuffer;
             YPos += yBuffer;
         }
-        if (!(i & 1))
-            frameBufferPtr -= SCREEN_XSIZE;
+        // commented out
+//        if (!(i & 1))
+//            frameBufferPtr -= SCREEN_XSIZE;
     }
 
     //TODO(?): this is run only when the code above is drawn to a "HQ" framebuffer
