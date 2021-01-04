@@ -2581,7 +2581,7 @@ void DrawFace(void *v, uint colour)
 {
     Vertex *verts = (Vertex *)v;
 
-    alpha = (colour & 0x7F000000) >> 23;
+    int alpha = (colour & 0x7F000000) >> 23;
     if (alpha > 253)
         alpha = 0xFF;
     if (alpha < 1)
