@@ -115,6 +115,7 @@ void PlayVideoFile(char *filePath) {
 
         // "temp" but I really cannot be bothered to go through the nightmare that is streaming the audio data
         // (yes I tried, and probably cut years off my life)
+        /*
         StrCopy(filepath, gamePath);
         StrAdd(filepath, "videos/");
         StrAdd(filepath, filePath);
@@ -136,7 +137,7 @@ void PlayVideoFile(char *filePath) {
         Engine.usingDataFile = false;
         PlayMusic(trackID);
         Engine.usingDataFile = df;
-
+        */
         videoSkipped = false;
 
         Engine.gameMode = ENGINE_VIDEOWAIT;
