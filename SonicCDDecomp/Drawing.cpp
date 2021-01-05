@@ -245,8 +245,8 @@ void DrawStageGFX(void)
     DrawObjectList(5);
     DrawObjectList(6);
 
-    if (fadeMode > 0) {
-//        DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
+    if (fadeMode > 0 && fadeA == 255) { // to cleanup surface between scene switching
+        DrawRectangle(0, 0, SCREEN_XSIZE, SCREEN_YSIZE, fadeR, fadeG, fadeB, fadeA);
     }
 }
 
