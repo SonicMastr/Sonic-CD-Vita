@@ -16,8 +16,37 @@ bool videoPlaying = 0;
 int vidFrameMS = 0;
 int vidBaseticks = 0;
 
+typedef struct AudioQueue
+{
+    const THEORAPLAY_AudioPacket *audio;
+    int offset;
+    struct AudioQueue *next;
+} AudioQueue;
+
+static volatile AudioQueue *audio_queue = NULL;
+static volatile AudioQueue *audio_queue_tail = NULL;
 
 bool videoSkipped = false;
+
+static void queue_audio(const THEORAPLAY_AudioPacket *audio)
+{
+    AudioQueue *item = (AudioQueue *) SDL_malloc(sizeof (AudioQueue));
+    if (!item)
+    {
+        THEORAPLAY_freeAudio(audio);
+        return;  // oh well.
+    } // if
+
+    item->audio = audio;
+    item->offset = 0;
+    item->next = NULL;
+
+    if (audio_queue_tail)
+        audio_queue_tail->next = item;
+    else
+        audio_queue = item;
+    audio_queue_tail = item;
+} // queue_audio
 
 static long videoRead(THEORAPLAY_Io *io, void *buf, long buflen)
 {
@@ -36,7 +65,10 @@ static void videoClose(THEORAPLAY_Io *io)
 
 void PlayVideoFile(char *filePath) { 
     char filepath[0x100];
-    StrCopy(filepath, "videos/");
+
+
+    StrCopy(filepath, gamePath);
+    StrAdd(filepath, "videos/");
     StrAdd(filepath, filePath);
     StrAdd(filepath, ".ogv");
 
@@ -64,6 +96,12 @@ void PlayVideoFile(char *filePath) {
             return;
         }
 
+        while (videoAudioData)
+        {
+            queue_audio(videoAudioData);
+            videoAudioData = THEORAPLAY_getAudio(videoDecoder);
+        } // while
+
         //clear audio data, we dont use it
         while ((videoAudioData = THEORAPLAY_getAudio(videoDecoder)) != NULL) THEORAPLAY_freeAudio(videoAudioData);
 
@@ -77,7 +115,9 @@ void PlayVideoFile(char *filePath) {
 
         // "temp" but I really cannot be bothered to go through the nightmare that is streaming the audio data
         // (yes I tried, and probably cut years off my life)
-        StrCopy(filepath, "videos/");
+        /*
+        StrCopy(filepath, gamePath);
+        StrAdd(filepath, "videos/");
         StrAdd(filepath, filePath);
         if (StrComp(filePath, "Good_Ending") || StrComp(filePath, "Bad_Ending") || StrComp(filePath, "Opening")) {
             if (!GetGlobalVariableByName("Options.Soundtrack"))
@@ -97,7 +137,7 @@ void PlayVideoFile(char *filePath) {
         Engine.usingDataFile = false;
         PlayMusic(trackID);
         Engine.usingDataFile = df;
-
+        */
         videoSkipped = false;
 
         Engine.gameMode = ENGINE_VIDEOWAIT;
@@ -105,7 +145,54 @@ void PlayVideoFile(char *filePath) {
     else {
         printLog("Couldn't find file '%s'!", filepath);
     }
-    
+}
+
+void ProcessVideoStream(void *data, Uint8 *stream, int len)
+{
+    if (videoPlaying) {
+        Sint16 *dst = (Sint16 *) stream;
+
+        while (audio_queue && (len > 0))
+        {
+            volatile AudioQueue *item = audio_queue;
+            AudioQueue *next = item->next;
+            const int channels = item->audio->channels;
+
+            const float *src = item->audio->samples + (item->offset * channels);
+            int cpy = (item->audio->frames - item->offset) * channels;
+            int i;
+
+            if (cpy > (len / sizeof (Sint16)))
+            cpy = len / sizeof (Sint16);
+
+            for (i = 0; i < cpy; i++)
+            {
+                const float val = *(src++);
+                if (val < -1.0f)
+                    *(dst++) = -32768;
+                else if (val > 1.0f)
+                    *(dst++) = 32767;
+                else
+                    *(dst++) = (Sint16) (val * 32767.0f);
+            } // for
+
+            item->offset += (cpy / channels);
+            len -= cpy * sizeof (Sint16);
+
+            if (item->offset >= item->audio->frames)
+            {
+                THEORAPLAY_freeAudio(item->audio);
+                SDL_free((void *) item);
+                audio_queue = next;
+            } // if
+        } // while
+
+        if (!audio_queue)
+            audio_queue_tail = NULL;
+
+        if (len > 0)
+            memset(dst, '\0', len);
+    }
 }
 
 void UpdateVideoFrame()
@@ -180,6 +267,16 @@ int ProcessVideo()
 
             if (videoVidData)
                 THEORAPLAY_freeVideo(videoVidData);
+
+            while (audio_queue)
+            {
+                volatile AudioQueue *item = audio_queue;
+                AudioQueue *next = item->next;
+                THEORAPLAY_freeAudio(item->audio);
+                SDL_free((void *) item);
+                audio_queue = next;
+            }
+
             if (videoAudioData)
                 THEORAPLAY_freeAudio(videoAudioData);
             if (videoDecoder)
@@ -224,19 +321,27 @@ int ProcessVideo()
                     // video lagging uh oh
                 }
 
-                memset(Engine.videoFrameBuffer, 0, (videoWidth * videoHeight) * sizeof(uint));
                 uint px = 0;
+                int pitch = 0;
+                uint* pixels = NULL;
+                SDL_LockTexture(Engine.videoBuffer, NULL, (void **)&pixels, &pitch);
+
                 for (uint i = 0; i < (videoWidth * videoHeight) * sizeof(uint); i += sizeof(uint)) {
-                    Engine.videoFrameBuffer[px++] = (videoVidData->pixels[i + 3] << 24 | videoVidData->pixels[i] << 16
-                                                     | videoVidData->pixels[i + 1] << 8 | videoVidData->pixels[i + 2] << 0);
+                    pixels[px++] = (0xFF << 24 | videoVidData->pixels[i+2] << 16
+                                                     | videoVidData->pixels[i + 1] << 8 | videoVidData->pixels[i] << 0);
+
+
                 }
+                SDL_UnlockTexture(Engine.videoBuffer);
+
 
                 THEORAPLAY_freeVideo(videoVidData);
                 videoVidData = NULL;
             }
 
             //Clear audio data
-            while ((videoAudioData = THEORAPLAY_getAudio(videoDecoder)) != NULL) THEORAPLAY_freeAudio(videoAudioData);
+            while ((videoAudioData = THEORAPLAY_getAudio(videoDecoder)) != NULL) //THEORAPLAY_freeAudio(videoAudioData);
+                queue_audio(videoAudioData);
 
             return 2; // its playing as expected
         }
@@ -247,20 +352,13 @@ int ProcessVideo()
 
 
 void SetupVideoBuffer(int width, int height) {
-    Engine.videoBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, width, height);
+    Engine.videoBuffer = SDL_CreateTexture(Engine.renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, width, height);
 
     if (!Engine.videoBuffer) 
         printLog("Failed to create video buffer!");
-
-    Engine.videoFrameBuffer = new uint[width * height];
 }
 void CloseVideoBuffer() {
     if (videoPlaying) {
-        if (Engine.videoFrameBuffer) {
-            delete[] Engine.videoFrameBuffer;
-            Engine.videoFrameBuffer = nullptr;
-        }
-
         SDL_DestroyTexture(Engine.videoBuffer);
         Engine.videoBuffer = nullptr;
     }

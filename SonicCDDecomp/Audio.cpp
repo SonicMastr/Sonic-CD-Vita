@@ -221,6 +221,7 @@ void ProcessAudioPlayback(void *data, Uint8 *stream, int len)
         return;
 
     ProcessMusicStream(data, stream, len);
+    ProcessVideoStream(data, stream, len);
 
     for (byte i = 0; i < CHANNEL_COUNT; ++i) {
         ChannelInfo *sfx = &sfxChannels[i];

@@ -234,7 +234,6 @@ public:
 
 
     uint *frameBuffer = nullptr;
-    uint *videoFrameBuffer = nullptr;
 
     bool isFullScreen = false;
 
