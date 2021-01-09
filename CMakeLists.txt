@@ -1,93 +1,74 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 2.6)
 
-if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-  if(DEFINED ENV{DOLCESDK})
-    set(CMAKE_TOOLCHAIN_FILE "$ENV{DOLCESDK}/share/dolce.toolchain.cmake" CACHE PATH "toolchain file")
-  else()
-    message(FATAL_ERROR "Please define DOLCESDK to point to your SDK path!")
-  endif()
-endif()
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
 
-project(GLES20_Cube)
-include("${DOLCESDK}/share/dolce.cmake" REQUIRED)
+set(PLATFORM "vita" CACHE STRING "Platform to build for")
+set_property(CACHE PLATFORM PROPERTY STRINGS pc vita)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Ofast -Wall -fno-lto -fno-pic -fno-plt")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive -std=c++11")
-set(DOLCE_MKSFOEX_FLAGS "${DOLCE_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1")
+IF(PLATFORM STREQUAL "pc")
+ELSEIF(PLATFORM STREQUAL "vita")
+    IF(DEFINED ENV{DOLCESDK})
+        include("$ENV{DOLCESDK}/share/dolce.toolchain.cmake" REQUIRED)
+        include("$ENV{DOLCESDK}/share/dolce.cmake" REQUIRED)
+        set(DOLCE_APP_NAME "Sonic CD")
+        set(DOLCE_TITLEID  "SOCD00001")
+        set(DOLCE_VERSION  "01.00")
+        set(DOLCE_MKSFOEX_FLAGS "${DOLCE_MKSFOEX_FLAGS} -d PARENTAL_LEVEL=1")
+        set(DOLCE_ELF_CREATE_FLAGS "${DOLCE_ELF_CREATE_FLAGS} -h 4194304")
+    ELSE()
+        message(FATAL_ERROR "Please define DOLCESDK to point to your SDK path!")
+    ENDIF()
+ELSE()
+    message(FATAL_ERROR "Wrong platform")
+ENDIF()
 
-project(SonicCD-Vita)
+project(soniccd CXX C)
 
-include_directories(
-    "SonicCDDecomp"
-    "dependencies/all/theoraplay"
-)
+set (soniccd_VERSION_MAJOR 1)
+set (soniccd_VERSION_MINOR 0)
+set (soniccd_VERSION_RELEASE 0)
 
-# Build self
+include(CheckCXXCompilerFlag)
+include(GNUInstallDirs)
 
-set(ELF "sonic.elf")
-set(SELF "sonic.self")
+find_package(SDL2 REQUIRED)
+
+include_directories(${SDL2_INCLUDE_DIR})
+include_directories(${soniccd_SOURCE_DIR})
+include_directories("${CMAKE_SOURCE_DIR}/dependencies/all/theoraplay/")
 
 file(GLOB_RECURSE sonic_SRC
     SonicCDDecomp/*.cpp
 )
 
-add_executable("${ELF}"
+SET(SOURCES
     ${sonic_SRC}
     dependencies/all/theoraplay/theoraplay.c
 )
 
-target_link_libraries("${ELF}"
-  SDL2
-  SDL2_image
-  pib
-  vorbisfile
-  vorbis
-  ogg
-  mpg123
-  FLAC
-  mikmod
-  opus
-  freetype
-  jpeg
-  png
-  theora
-  SceMotion_stub
-  SceCommonDialog_stub
-  SceHid_stub
-  SceGxm_stub
-  SceAudio_stub
-  ScePower_stub
-  SceDisplayUser_stub
-  SceDisplay_stub
-  SceCtrl_stub
-  SceTouch_stub
-  SceIofilemgr_stub
-  SceSsl_stub
-  SceSysmodule_stub
-  pthread
-  ${SDL2_LIBRARIES}
-  gcc
-  g
-  m
-)
+add_definitions("-Wall")
+add_definitions("-std=c++11")
 
-dolce_create_self("${SELF}"
-  "${ELF}"
-)
+add_executable(soniccd ${SOURCES})
 
-# Build VPK
+IF(PLATFORM STREQUAL "pc")
+    target_link_libraries(soniccd SDL2::SDL2 theoradec theora vorbisfile vorbis ogg pthread)
 
-set(VPK "SonicCD.vpk")
-set(TITLE_NAME "Sonic CD")
-set(TITLE_ID "SOCD00001")
-set(TITLE_VER "01.00")
+ELSEIF(PLATFORM STREQUAL "vita")
+    add_definitions("-D__VITA__")
+    target_link_libraries(soniccd SDL2::SDL2-static
+      theoradec
+      theora
+      vorbisfile
+      vorbis
+      ogg
+      pthread
+    )
 
-dolce_create_vpk("${VPK}" "${TITLE_ID}" "${SELF}"
-  NAME "${TITLE_NAME}"
-  VERSION "${TITLE_VER}"
-  FILE sce_sys/icon0.png sce_sys/icon0.png
-  FILE sce_sys/pic0.png sce_sys/pic0.png
-	FILE sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
-	FILE sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
-	FILE sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
-)
+  dolce_create_self(${PROJECT_NAME}.self soniccd UNSAFE)
+  dolce_create_vpk(${PROJECT_NAME}.vpk ${DOLCE_TITLEID} ${PROJECT_NAME}.self
+    VERSION ${DOLCE_VERSION}
+    NAME ${DOLCE_APP_NAME}
+    FILE sce_sys sce_sys
+  )
+ENDIF()
